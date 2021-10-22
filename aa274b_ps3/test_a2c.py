@@ -27,15 +27,15 @@ MAX_REPLAY_BUFFER_SIZE = BATCH_SIZE * 10
 FAILURE_REWARD = -10.
 # path where to save the actor after training
 FROZEN_ACTOR_PATH = 'frozen_actor.pb'
-# Modified 10/21
+# Modified 10/22
 all_throttle = np.arange(start=-1, stop=2, step=1)
 all_steer = np.arange(start=-1, stop=2, step=1)
 ACTION_DIM = len(all_throttle) * len(all_steer)
 all_action = np.zeros((ACTION_DIM, 2))
-for i in range(len(all_throttle)):
-    for j in range(len(all_steer)):
-        all_action[i * len(all_steer) + j][0] = all_throttle[i]
-        all_action[i * len(all_steer) + j][1] = all_steer[j]
+for i in range(len(all_steer)):
+    for j in range(len(all_throttle)):
+        all_action[i * len(all_throttle) + j][0] = all_steer[i]
+        all_action[i * len(all_throttle) + j][1] = all_throttle[j]
 print("action space = ", all_action)
 
 # setting the random seed makes things reproducible
@@ -68,10 +68,15 @@ class Actor():
 
         # state_input_ph is the input to the neural network
         self.state_input_ph = tf.compat.v1.placeholder(tf.float32, [None, state_dim], name='actor_state_input')
+        
         # action_ph will be a label in the training process of the actor
+        # Modified 10/22
         self.action_ph = tf.compat.v1.placeholder(tf.int32, [None, 1], name='actor_action')
+        # self.action_ph = tf.compat.v1.placeholder(tf.int32, [None, 9], name='actor_action')
+        
         # td_error_ph will also be a label in the training process of the actor
         self.td_error_ph = tf.compat.v1.placeholder(tf.float32, [None, 1], name='actor_td_error')
+        # self.td_error_ph = tf.compat.v1.placeholder(tf.float32, [None, 9], name='actor_td_error')
 
         # setting up the computation graph
 
@@ -90,17 +95,24 @@ class Actor():
         ])
         # probability distribution over potential actions
         self.action_probs = tf.math.softmax(self.nn(self.state_input_ph))
+        print("action_probs: ", self.action_probs)
         # convert action label to one_hot format
         self.action_one_hot = tf.one_hot(self.action_ph[:, 0], self.action_dim, dtype='float32')
+        print("action_ph: ", self.action_ph)
+        print("one_hot: ", self.action_one_hot)
         # log of the action probability, cliped for numerical stability
+        # Modiifed 10/22
         self.log_action_prob = tf.reduce_sum(tf.math.log(
             tf.clip_by_value(self.action_probs, 1e-14, 1.)) * self.action_one_hot, axis=1, keepdims=True)
-        print(tf.shape(self.log_action_prob))
+        print("log_action_prob: ", self.log_action_prob)
+        print("td_err_ph: ", self.td_error_ph)
+
         # the expected reward to go for this sample (J(theta)) (Eqn. 11)
         self.expected_v = self.log_action_prob * self.td_error_ph
         # taking the negative so that we effectively maximize
         self.loss = -tf.reduce_mean(self.expected_v)
         # the training step
+        # Modified 10/22
         self.train_op = tf.compat.v1.train.AdamOptimizer(.01).minimize(self.loss)
 
     def train_step(self, state, action, td_error):
@@ -116,10 +128,15 @@ class Actor():
             expected_v: a tensor of the expected reward for each of the samples
             in the batch (batch_size X 1)
         """
+        # print("train_step input action: ", action)
+        # print("train_step input state: ", state)
+        # print("train_step input td_error: ", td_error)
+
         expected_v, _ = self.sess.run([self.expected_v, self.train_op],
                                       {self.state_input_ph: state,
                                        self.action_ph: action,
                                        self.td_error_ph: td_error})
+        print("expected_v: ", expected_v)
         return expected_v
 
     def get_action(self, state):
@@ -134,12 +151,13 @@ class Actor():
         """
         action_probs = self.sess.run(self.action_probs,
                                      {self.state_input_ph: state[np.newaxis, :]})
-        # action = np.random.choice(self.action_dim, p=action_probs[0, :])
+        print(action_probs)
         # Modified 10/21
+        # action = np.random.choice(self.action_dim, p=action_probs[0, :])
         action_idx = np.random.choice(self.action_dim, p=action_probs[0, :])
-        action = all_action[action_idx][:]
-        # print(action)
-        return action
+        action = all_action[action_idx]
+        print("get_action result:", action_idx, action)
+        return action_idx
 
     def export(self, frozen_actor_path):
         """
@@ -266,10 +284,12 @@ def run_actor(env, actor, num_episodes, render=True):
         while not done:
             t = time.time()
 
-            # Modified 10/21
+            # Modified 10/22
             # obs = np.array(obs).reshape(1,-1)
             obs = np.array(obs).reshape(-1)
-            action = actor.get_action(obs)
+            action_idx = actor.get_action(obs)
+            action = all_action[action_idx]
+            # print(action)
             obs,reward,done,_ = env.step(action)
 
             total_reward += reward
@@ -335,9 +355,9 @@ def train_actor_critic(sess):
     sess.run(tf.compat.v1.global_variables_initializer())
 
     # the replay buffer will store observed transitions
-    # Modified 10/21
-    # replay_buffer = np.zeros((0, 2 * state_dim + 2))
-    replay_buffer = np.zeros((0, 2 * state_dim + 2 + 1))
+    # Modified 10/22
+    replay_buffer = np.zeros((0, 2 * state_dim + 2))
+    # replay_buffer = np.zeros((0, 2 * state_dim + 2 + 1))
 
     # you can stop the training at any time using ctrl+c (the actor will
     # still be tested and its network exported for verification
@@ -357,18 +377,28 @@ def train_actor_critic(sess):
             episode_reward = 0.
 
             for t in range(MAX_EP_STEPS):
-                # TODO: NEED FIX
+                print("training %d" % t)
                 # uses the actor to get an action at the current state
-                action = actor.get_action(state)
+                # Modifed 10/22
+                # action = actor.get_action(state)
+                action_idx = actor.get_action(state)
+                action = all_action[action_idx]
+                # print(action)
+
                 # call gym to get the next state and reward, given we are taking action at the current state
                 state_next, reward, done, info = env.step(action)
+
                 # done=True means either the cartpole failed OR we've reached the maximum number of episode steps
-                if done and t < (MAX_EP_STEPS - 1):
-                    reward = FAILURE_REWARD
+                # Modified 10/22
+                # if done and t < (MAX_EP_STEPS - 1):
+                #     reward = FAILURE_REWARD
+
                 # accumulate the reward for this whole episode
                 episode_reward += reward
                 # store the observed transition in our replay buffer for training
-                replay_buffer = np.vstack((replay_buffer, np.hstack((state, action, reward, state_next))))
+                # Modified 10/22
+                # replay_buffer = np.vstack((replay_buffer, np.hstack((state, action, reward, state_next))))
+                replay_buffer = np.vstack((replay_buffer, np.hstack((state, action_idx, reward, state_next))))
 
                 # if our replay buffer has accumulated enough samples, we start learning the actor and the critic
                 if replay_buffer.shape[0] >= BATCH_SIZE:
@@ -376,9 +406,14 @@ def train_actor_critic(sess):
                     # we sample BATCH_SIZE transition from our replay buffer
                     samples_i = np.random.choice(replay_buffer.shape[0], BATCH_SIZE, replace=False)
                     state_samples = replay_buffer[samples_i, 0:state_dim]
+
+                    # Modified 10/22
                     action_samples = replay_buffer[samples_i, state_dim:state_dim + 1]
                     reward_samples = replay_buffer[samples_i, state_dim + 1:state_dim + 2]
                     state_next_samples = replay_buffer[samples_i, state_dim + 2:2 * state_dim + 2]
+                    # action_samples = replay_buffer[samples_i, state_dim : state_dim + 2]
+                    # reward_samples = replay_buffer[samples_i, state_dim + 2 : state_dim + 3]
+                    # state_next_samples = replay_buffer[samples_i, state_dim + 3 : 2 * state_dim + 3]
 
                     # compute the TD error using the critic
                     td_error = critic.train_step(state_samples, reward_samples, state_next_samples)
