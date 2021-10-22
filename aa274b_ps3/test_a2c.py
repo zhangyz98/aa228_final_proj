@@ -27,6 +27,16 @@ MAX_REPLAY_BUFFER_SIZE = BATCH_SIZE * 10
 FAILURE_REWARD = -10.
 # path where to save the actor after training
 FROZEN_ACTOR_PATH = 'frozen_actor.pb'
+# Modified 10/21
+all_throttle = np.arange(start=-1, stop=2, step=1)
+all_steer = np.arange(start=-1, stop=2, step=1)
+ACTION_DIM = len(all_throttle) * len(all_steer)
+all_action = np.zeros((ACTION_DIM, 2))
+for i in range(len(all_throttle)):
+    for j in range(len(all_steer)):
+        all_action[i * len(all_steer) + j][0] = all_throttle[i]
+        all_action[i * len(all_steer) + j][1] = all_steer[j]
+print("action space = ", all_action)
 
 # setting the random seed makes things reproducible
 random_seed = 2
@@ -85,6 +95,7 @@ class Actor():
         # log of the action probability, cliped for numerical stability
         self.log_action_prob = tf.reduce_sum(tf.math.log(
             tf.clip_by_value(self.action_probs, 1e-14, 1.)) * self.action_one_hot, axis=1, keepdims=True)
+        print(tf.shape(self.log_action_prob))
         # the expected reward to go for this sample (J(theta)) (Eqn. 11)
         self.expected_v = self.log_action_prob * self.td_error_ph
         # taking the negative so that we effectively maximize
@@ -123,7 +134,11 @@ class Actor():
         """
         action_probs = self.sess.run(self.action_probs,
                                      {self.state_input_ph: state[np.newaxis, :]})
-        action = np.random.choice(self.action_dim, p=action_probs[0, :])
+        # action = np.random.choice(self.action_dim, p=action_probs[0, :])
+        # Modified 10/21
+        action_idx = np.random.choice(self.action_dim, p=action_probs[0, :])
+        action = all_action[action_idx][:]
+        # print(action)
         return action
 
     def export(self, frozen_actor_path):
@@ -242,16 +257,21 @@ def run_actor(env, actor, num_episodes, render=True):
     success_counter = 0
     env.T = 200*env.dt - env.dt/2. # Run for at most 200dt = 20 seconds
     for _ in range(episode_number):
-        env.seed(int(np.random.rand()*1e6))
+        # env.seed(int(np.random.rand()*1e6))
+        env.seed(int(1e5))
         obs, done = env.reset(), False
         total_reward = 0.
-        if args.visualize:
-            env.render()
+        # if args.visualize:
+        #     env.render()
         while not done:
             t = time.time()
+
+            # Modified 10/21
             # obs = np.array(obs).reshape(1,-1)
+            obs = np.array(obs).reshape(-1)
             action = actor.get_action(obs)
             obs,reward,done,_ = env.step(action)
+
             total_reward += reward
             if args.visualize:
                 env.render()
@@ -307,7 +327,7 @@ def train_actor_critic(sess):
     
     state_dim = env.observation_space.shape[0]
     # print(state_dim)
-    action_dim = 2  # env.action_space.n
+    action_dim = ACTION_DIM  # env.action_space.n
 
     # create an actor and a critic network and initialize their variables
     actor = Actor(sess, state_dim, action_dim)
@@ -315,7 +335,9 @@ def train_actor_critic(sess):
     sess.run(tf.compat.v1.global_variables_initializer())
 
     # the replay buffer will store observed transitions
-    replay_buffer = np.zeros((0, 2 * state_dim + 2))
+    # Modified 10/21
+    # replay_buffer = np.zeros((0, 2 * state_dim + 2))
+    replay_buffer = np.zeros((0, 2 * state_dim + 2 + 1))
 
     # you can stop the training at any time using ctrl+c (the actor will
     # still be tested and its network exported for verification
@@ -335,6 +357,7 @@ def train_actor_critic(sess):
             episode_reward = 0.
 
             for t in range(MAX_EP_STEPS):
+                # TODO: NEED FIX
                 # uses the actor to get an action at the current state
                 action = actor.get_action(state)
                 # call gym to get the next state and reward, given we are taking action at the current state
