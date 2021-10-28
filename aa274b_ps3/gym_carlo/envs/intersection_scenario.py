@@ -119,13 +119,17 @@ class IntersectionScenario(gym.Env):
         action = np.clip(action, self.action_space.low, self.action_space.high)
         self.ego.set_control(action[0],action[1])
         self.world.tick()
-        
-        return self._get_obs(), self._get_reward(), self.collision_exists or self.target_reached or self.world.t >= self.T, {}
+        # Modified 10/27
+        # return self._get_obs(), self._get_reward(), self.collision_exists or self.target_reached or self.world.t >= self.T, {}
+        return self._get_obs(), self._get_reward(), \
+            self.collision_exists or self.target_reached or self.world.t >= self.T or self._get_obs()[1] > MAP_HEIGHT, {}
         
     def _get_reward(self):
         if self.collision_exists:
             return -200
         if self.active_goal < len(self.targets):
+            # Modified 10/27
+            # return -0.01*self.targets[self.active_goal].distanceTo(self.ego)
             return -0.01*self.targets[self.active_goal].distanceTo(self.ego)
         return -0.01*np.min([self.targets[i].distanceTo(self.ego) for i in range(len(self.targets))])
         

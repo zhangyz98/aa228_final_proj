@@ -1,5 +1,6 @@
 import os
 import numpy as np
+from numpy import random
 import tensorflow as tf
 import gym
 import gym_carlo
@@ -11,24 +12,26 @@ from utils import *
 # suppress deprecation warning for now
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 # maximum number of training episodes
-NUM_EPISODES = 90
+# Modifed 10/27
+NUM_EPISODES = 40  # 90
 # maximum number of steps per episode
 # CartPole-V0 has a maximum of 200 steps per episodes
 MAX_EP_STEPS = 200
 # reward discount factor
 GAMMA = .6
 # once MAX_EPISODES or ctrl-c is pressed, number of test episodes to run
-NUM_TEST_EPISODES = 3
+NUM_TEST_EPISODES = 5
 # batch size used for the training
-BATCH_SIZE = 1000
+BATCH_SIZE = 200  # 1000
 # maximum number of transitions stored in the replay buffer
 MAX_REPLAY_BUFFER_SIZE = BATCH_SIZE * 10
 # reward that is returned when the episode terminates early (i.e. the controller fails)
-FAILURE_REWARD = -10.
+# FAILURE_REWARD = -200. # -10.
+
 # path where to save the actor after training
 FROZEN_ACTOR_PATH = 'frozen_actor.pb'
 # Modified 10/22
-all_throttle = np.arange(start=-1, stop=2, step=1)
+all_throttle = np.arange(start=-.5, stop=2, step=1)
 all_steer = np.arange(start=-1, stop=2, step=1)
 ACTION_DIM = len(all_throttle) * len(all_steer)
 all_action = np.zeros((ACTION_DIM, 2))
@@ -70,24 +73,27 @@ class Actor():
         self.state_input_ph = tf.compat.v1.placeholder(tf.float32, [None, state_dim], name='actor_state_input')
         
         # action_ph will be a label in the training process of the actor
-        # Modified 10/22
         self.action_ph = tf.compat.v1.placeholder(tf.int32, [None, 1], name='actor_action')
-        # self.action_ph = tf.compat.v1.placeholder(tf.int32, [None, 9], name='actor_action')
         
         # td_error_ph will also be a label in the training process of the actor
         self.td_error_ph = tf.compat.v1.placeholder(tf.float32, [None, 1], name='actor_td_error')
-        # self.td_error_ph = tf.compat.v1.placeholder(tf.float32, [None, 9], name='actor_td_error')
 
         # setting up the computation graph
 
         # the neural network (input will be state, output is unscaled probability distribution)
         # note: the neural network must be entirely linear to support verification
         self.nn = tf.keras.Sequential([
-            tf.keras.layers.Dense(128, activation='relu',
+            # Modified 10/27
+            # tf.keras.layers.Dense(128, activation='relu',
+            tf.keras.layers.Dense(64, activation='tanh',
                                   input_shape=[state_dim],
                                   kernel_initializer=tf.random_normal_initializer(0., .1),
                                   bias_initializer=tf.constant_initializer(.1),
                                   name='actor_h1'),
+            tf.keras.layers.Dense(128, activation='tanh',
+                                  kernel_initializer=tf.random_normal_initializer(0., .1),
+                                  bias_initializer=tf.constant_initializer(.1),
+                                  name='actor_h2'),
             tf.keras.layers.Dense(action_dim, activation=None,
                                   kernel_initializer=tf.random_normal_initializer(0., .1),
                                   bias_initializer=tf.constant_initializer(.1),
@@ -95,24 +101,25 @@ class Actor():
         ])
         # probability distribution over potential actions
         self.action_probs = tf.math.softmax(self.nn(self.state_input_ph))
-        print("action_probs: ", self.action_probs)
+        # print("action_probs: ", self.action_probs)
+
         # convert action label to one_hot format
         self.action_one_hot = tf.one_hot(self.action_ph[:, 0], self.action_dim, dtype='float32')
-        print("action_ph: ", self.action_ph)
-        print("one_hot: ", self.action_one_hot)
+        # print("action_ph: ", self.action_ph)
+        # print("one_hot: ", self.action_one_hot)
+
         # log of the action probability, cliped for numerical stability
         # Modiifed 10/22
         self.log_action_prob = tf.reduce_sum(tf.math.log(
             tf.clip_by_value(self.action_probs, 1e-14, 1.)) * self.action_one_hot, axis=1, keepdims=True)
-        print("log_action_prob: ", self.log_action_prob)
-        print("td_err_ph: ", self.td_error_ph)
+        # print("log_action_prob: ", self.log_action_prob)
 
         # the expected reward to go for this sample (J(theta)) (Eqn. 11)
         self.expected_v = self.log_action_prob * self.td_error_ph
         # taking the negative so that we effectively maximize
         self.loss = -tf.reduce_mean(self.expected_v)
         # the training step
-        # Modified 10/22
+        # Modified 10/27
         self.train_op = tf.compat.v1.train.AdamOptimizer(.01).minimize(self.loss)
 
     def train_step(self, state, action, td_error):
@@ -128,15 +135,15 @@ class Actor():
             expected_v: a tensor of the expected reward for each of the samples
             in the batch (batch_size X 1)
         """
-        # print("train_step input action: ", action)
-        # print("train_step input state: ", state)
-        # print("train_step input td_error: ", td_error)
-
         expected_v, _ = self.sess.run([self.expected_v, self.train_op],
                                       {self.state_input_ph: state,
                                        self.action_ph: action,
                                        self.td_error_ph: td_error})
-        print("expected_v: ", expected_v)
+
+        # print("actor_action: ", action)
+        # print("actor_state: ", state)
+        # print("actor_td_error: ", td_error)
+        # print("actor_expected_v: ", expected_v)
         return expected_v
 
     def get_action(self, state):
@@ -151,7 +158,7 @@ class Actor():
         """
         action_probs = self.sess.run(self.action_probs,
                                      {self.state_input_ph: state[np.newaxis, :]})
-        print(action_probs)
+        # print("action_probs: ", action_probs)
         # Modified 10/21
         # action = np.random.choice(self.action_dim, p=action_probs[0, :])
         action_idx = np.random.choice(self.action_dim, p=action_probs[0, :])
@@ -215,11 +222,17 @@ class Critic():
         # estimate of the reward-to-go)
 
         self.nn = tf.keras.Sequential([
-            tf.keras.layers.Dense(128, activation='relu',
+            # Modified 10/27
+            # tf.keras.layers.Dense(128, activation='relu',
+            tf.keras.layers.Dense(128, activation='tanh',
                                   input_shape=[state_dim],
                                   kernel_initializer=tf.random_normal_initializer(0., .1),
                                   bias_initializer=tf.constant_initializer(.1),
                                   name='critic_h1'),
+            # tf.keras.layers.Dense(128, activation='tanh',
+            #                       kernel_initializer=tf.random_normal_initializer(0., .1),
+            #                       bias_initializer=tf.constant_initializer(.1),
+            #                       name='critic_h2'),
             tf.keras.layers.Dense(1, activation=None,
                                   kernel_initializer=tf.random_normal_initializer(0., .1),
                                   bias_initializer=tf.constant_initializer(.1),
@@ -230,6 +243,11 @@ class Critic():
         self.v = self.nn(self.state_input_ph)
         # td_error (Eqn.14)
         self.td_error = self.reward_ph + GAMMA * self.v_next_ph - self.v
+        # Modified 10/27
+        # print("reward_ph = ", self.reward_ph)
+        # print("v_next_ph = ", self.v_next_ph)
+        # print("v = ", self.v)
+
         # loss (Eqn.16)
         self.loss = tf.reduce_sum(tf.square(self.td_error))
 
@@ -255,6 +273,12 @@ class Critic():
                                     {self.state_input_ph: state,
                                      self.reward_ph: reward,
                                      self.v_next_ph: v_next})
+        # print("critic_state_next = ", state_next)
+        # print("critic_state = ", state)
+        # print("critic_reward_ph = ", reward)
+        # print("critic_v_next = ", v_next)
+        # print("critic_td_error = ", td_error)
+        print("critic_td_error_mean = ", np.average(td_error))
         return td_error
 
 
@@ -270,13 +294,13 @@ def run_actor(env, actor, num_episodes, render=True):
     returns:
         nothing
     """
-    # Modification 10/19
-    episode_number = 10 if args.visualize else 100
+    # Modification 10/19, 10/27
+    # episode_number = 10 if args.visualize else 100
     success_counter = 0
     env.T = 200*env.dt - env.dt/2. # Run for at most 200dt = 20 seconds
-    for _ in range(episode_number):
+    for _ in range(NUM_TEST_EPISODES):
         # env.seed(int(np.random.rand()*1e6))
-        env.seed(int(1e5))
+        env.seed(random_seed)
         obs, done = env.reset(), False
         total_reward = 0.
         # if args.visualize:
@@ -287,17 +311,18 @@ def run_actor(env, actor, num_episodes, render=True):
             # Modified 10/22
             # obs = np.array(obs).reshape(1,-1)
             obs = np.array(obs).reshape(-1)
+            # print(obs)
             action_idx = actor.get_action(obs)
             action = all_action[action_idx]
-            # print(action)
             obs,reward,done,_ = env.step(action)
 
             total_reward += reward
             if args.visualize:
                 env.render()
-                while time.time() - t < env.dt/2: pass # runs 2x speed. This is not great, but time.sleep() causes problems with the interactive controller
+                while time.time() - t < env.dt/2:
+                    pass # runs 2x speed. This is not great, but time.sleep() causes problems with the interactive controller
             if done:
-                # env.close()
+                env.close()
                 if args.visualize: time.sleep(1)
                 if env.target_reached: success_counter += 1
                 print("Reward: ", str(total_reward))
@@ -344,7 +369,9 @@ def train_actor_critic(sess):
         env = gym.make(scenario_name + 'Scenario-v0', goal=len(goals[scenario_name]))
     else:
         env = gym.make(scenario_name + 'Scenario-v0', goal=np.argwhere(np.array(goals[scenario_name])==args.goal.lower())[0,0]) # hmm, unreadable
-    
+    # Modified 10/27
+    env.seed(random_seed)
+
     state_dim = env.observation_space.shape[0]
     # print(state_dim)
     action_dim = ACTION_DIM  # env.action_space.n
@@ -386,7 +413,7 @@ def train_actor_critic(sess):
                 # print(action)
 
                 # call gym to get the next state and reward, given we are taking action at the current state
-                state_next, reward, done, info = env.step(action)
+                state_next, reward, done, _ = env.step(action)
 
                 # done=True means either the cartpole failed OR we've reached the maximum number of episode steps
                 # Modified 10/22
@@ -405,6 +432,7 @@ def train_actor_critic(sess):
 
                     # we sample BATCH_SIZE transition from our replay buffer
                     samples_i = np.random.choice(replay_buffer.shape[0], BATCH_SIZE, replace=False)
+                    # print("samples = ", samples_i)
                     state_samples = replay_buffer[samples_i, 0:state_dim]
 
                     # Modified 10/22
@@ -436,17 +464,17 @@ def train_actor_critic(sess):
     except KeyboardInterrupt:
         print("training interrupted")
     
-    # Modification 10/19
+    # Modification 10/19, 10/27
     # plot reward history
-    # plt.figure()
-    # plt.plot(reward_history)
-    # plt.xlabel('Number of Episodes')
-    # plt.ylabel('Episode Reward')
-    # plt.title('History of Episode Reward')
+    plt.figure()
+    plt.plot(reward_history, '-.')
+    plt.xlabel('Number of Episodes')
+    plt.ylabel('Episode Reward')
+    plt.title('History of Episode Reward')
     # if not os.path.exists('../plots'):
     #     os.makedirs('../plots')
     # plt.savefig('../plots/p3_reward_history.png')
-    # plt.show()
+    plt.show()
     run_actor(env, actor, NUM_TEST_EPISODES)
 
     # exports the actor neural network and its weights, for future verification
