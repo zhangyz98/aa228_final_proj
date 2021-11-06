@@ -20,6 +20,15 @@ class Pedestrian(CircleEntity):
         super(Pedestrian, self).__init__(center, heading, radius, movable, friction)
         self.color = color
         self.collidable = True
+
+# class Waypoint(CircleEntity):
+#     def __init__(self, center: Point, heading: float, color: str = 'LightSalmon3'): # after careful consideration, I decided my color is the same as a salmon, so here we go.
+#         movable = False
+#         friction = 0.
+#         super(Pedestrian, self).__init__(center, heading, radius, movable, friction)
+#         self.color = color
+#         self.collidable = False
+#         self.haspassed = True
         
 class RectangleBuilding(RectangleEntity):
     def __init__(self, center: Point, size: Point, color: str = 'gray26'):

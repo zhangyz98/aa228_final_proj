@@ -3,7 +3,7 @@ from gym.spaces import Box
 from gym.utils import seeding
 import numpy as np
 from world import World
-from agents import Car, RectangleBuilding, Pedestrian, Painting, RingBuilding, CircleBuilding
+from agents import Car, RectangleBuilding, Pedestrian, Painting, RingBuilding, CircleBuilding, Waypoint
 from geometry import Point
 from graphics import Text, Point as pnt # very unfortunate indeed
 
@@ -11,7 +11,7 @@ from graphics import Text, Point as pnt # very unfortunate indeed
 ## The scenario is the car learns to reach the goal position while also reaching several waypoint positions##
 
 MAP_WIDTH = 80
-MAP_HEIGHT = 120
+MAP_HEIGHT = 80
 LANE_WIDTH = 8.8 # Modified Lane Width (Twice as large)
 SIDEWALK_WIDTH = 2.0
 LANE_MARKER_HEIGHT = 3.8
@@ -26,7 +26,7 @@ class GoalFollowingScenario(gym.Env):
     def __init__(self):
         self.seed(0) # just in case we forget seeding
         
-        self.init_ego = Car(Point(MAP_WIDTH/2. + LANE_MARKER_WIDTH/2. + LANE_WIDTH/2., 0), heading = np.pi/2)
+        self.init_ego = Car(Point(MAP_WIDTH/2., 0), heading = np.pi/2)
         self.init_ego.velocity = Point(0., 10)
         self.init_ego.min_speed = 0.
         self.init_ego.max_speed = 30.
@@ -43,8 +43,8 @@ class GoalFollowingScenario(gym.Env):
 
         # Random initialization reset (Heading diff)
         # self.ego.center = Point(BUILDING_WIDTH + SIDEWALK_WIDTH + 2 + np.random.rand()*(2*LANE_WIDTH + LANE_MARKER_WIDTH - 4), self.np_random.rand()* MAP_HEIGHT/10.)
-        # self.ego.heading += np.random.randn()*0.1
-        # self.ego.velocity = Point(0, self.np_random.rand()*10)
+        self.ego.heading += np.random.randn()*0.1
+        self.ego.velocity += Point(0, self.np_random.randn()*2)
 
         self.targets = []
         self.targets.append(Point(TARGET_POS[0][0], TARGET_POS[0][1]))
@@ -63,12 +63,12 @@ class GoalFollowingScenario(gym.Env):
         self.world.add(RectangleBuilding(Point(MAP_WIDTH - BUILDING_WIDTH/2., MAP_HEIGHT/2.), Point(BUILDING_WIDTH, MAP_HEIGHT)))
         self.world.add(RectangleBuilding(Point(BUILDING_WIDTH/2., MAP_HEIGHT/2.), Point(BUILDING_WIDTH, MAP_HEIGHT)))
 
-        # Painting of Target/Goal Position (Used for visualizing the waypoint following)
+        # Painting of Target/Goal/Starting Position (Used for visualizing the waypoint following)
         self.world.add(Painting(Point(TARGET_POS[0][0], TARGET_POS[0][1]), Point(SIDEWALK_WIDTH, SIDEWALK_WIDTH), 'orange'))
         self.world.add(Painting(Point(TARGET_POS[1][0], TARGET_POS[1][1]), Point(SIDEWALK_WIDTH, SIDEWALK_WIDTH), 'orange'))
         self.world.add(Painting(Point(TARGET_POS[2][0], TARGET_POS[2][1]), Point(SIDEWALK_WIDTH, SIDEWALK_WIDTH), 'orange'))
-        self.world.add(Painting(Point(GOAL_POS[0], GOAL_POS[1]), Point(SIDEWALK_WIDTH*2, SIDEWALK_WIDTH*2), 'red'))
-
+        self.world.add(Painting(Point(GOAL_POS[0], GOAL_POS[1]), Point(LANE_WIDTH*2, SIDEWALK_WIDTH*2), 'red'))
+        self.world.add(Painting(Point(GOAL_POS[0], 0), Point(LANE_WIDTH*2, SIDEWALK_WIDTH*2),'blue'))
         # Respawn car itself in map
         self.world.add(self.ego)
 
@@ -77,10 +77,10 @@ class GoalFollowingScenario(gym.Env):
     def close(self):
         self.world.close()
         
-    @property # We may not use this property in our project
+    @property 
     def observation_space(self):
-        low = np.array([BUILDING_WIDTH, self.ego.min_speed, 0])
-        high= np.array([MAP_WIDTH - BUILDING_WIDTH, self.ego.max_speed, 2*np.pi])
+        low = np.array([0, 0, BUILDING_WIDTH, self.ego.min_speed, 0])
+        high= np.array([MAP_WIDTH, MAP_HEIGHT, self.ego.max_speed, 2*np.pi])
         return Box(low=low, high=high)
 
     @property
@@ -94,35 +94,38 @@ class GoalFollowingScenario(gym.Env):
     @property
     def target_reached(self):
         for i in range(len(self.targets)):
-            if self.targets[i].distanceTo(self.ego) < 1.:
-                self.targets.remove(self.targets[i])
+            if self.targets[i].distanceTo(self.ego) < SIDEWALK_WIDTH:
                 return True
         return False
 
     @property 
     def goal_reached(self):
-        return self.goal.distanceTo(self.ego) < 2.
+        return np.abs(self.goal.y - self.ego.y) < SIDEWALK_WIDTH
 
     @property
     def collision_exists(self):
         return self.world.collision_exists()
+
+    def walkthrough_exists(self):
+        return
         
     def step(self, action):
         action = np.clip(action, self.action_space.low, self.action_space.high) # May not need it because our policy is just limited.
         self.ego.set_control(action[0],action[1])
         self.world.tick()
         
+        
         return self._get_obs(), self._get_reward(), self.collision_exists or self.goal_reached or self.world.t >= self.T, {}
         
     def _get_reward(self): # Define Reward Here (Need to specify)
         if self.collision_exists:
-            return -1000
+            return -200
         elif self.goal_reached:
-            return 200
+            return 100
         elif self.target_reached:
             return 20
         else:
-            return -0.01*np.min([self.targets[i].distanceTo(self.ego) for i in range(len(self.targets))])
+            return -0.1*(self.ego.acceleration**2)
         
         # if self.active_goal < len(self.targets):
         #     return -0.01*self.targets[self.active_goal].distanceTo(self.ego)

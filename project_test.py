@@ -8,7 +8,8 @@ if __name__ == "__main__":
     #gfs = gym.make()
     dt = 0.1
     u = (0., 0.)
-    for k in range(10000):
+    total_reward = 0.
+    while True:
         state, reward, if_reset, non_defined = gfs.step(u) # move one time step and get the tuple of data
         gfs.render() # Test case
         # while time.time() - t < env.dt:
@@ -16,4 +17,10 @@ if __name__ == "__main__":
         # We should apply the reinforcement method here!
         # For example, policy = ReinforcementLearning() # (angular velocity, linear velocity)
         #              gfs.ego.set_control(policy)
-        time.sleep(dt)
+        total_reward += gfs._get_reward()
+        if if_reset:
+            gfs.close()
+            gfs.reset()
+            print("The total reward for this episode is: ", total_reward)
+            total_reward = 0.
+        time.sleep(dt/4)
