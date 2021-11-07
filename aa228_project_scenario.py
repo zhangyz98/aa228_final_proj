@@ -27,10 +27,10 @@ class GoalFollowingScenario(gym.Env):
         self.seed(0) # just in case we forget seeding
         
         self.init_ego = Car(Point(MAP_WIDTH/2., 0), heading = np.pi/2)
-        self.init_ego.velocity = Point(0., 10)
+        self.init_ego.velocity = Point(0., 5)
         self.init_ego.min_speed = 0.
         self.init_ego.max_speed = 30.
-        
+
         self.dt = 0.1
         self.T = 20
         
@@ -46,12 +46,20 @@ class GoalFollowingScenario(gym.Env):
         self.ego.heading += np.random.randn()*0.1
         self.ego.velocity += Point(0, self.np_random.randn()*2)
 
-        self.targets = []
-        self.targets.append(Point(TARGET_POS[0][0], TARGET_POS[0][1]))
-        self.targets.append(Point(TARGET_POS[1][0], TARGET_POS[1][1]))
-        self.targets.append(Point(TARGET_POS[2][0], TARGET_POS[2][1]))
+        self.score_state = [0, 0, 0]
+
+        # self.targets = []
+        # self.targets.append(Point(TARGET_POS[0][0], TARGET_POS[0][1]))
+        # self.targets.append(Point(TARGET_POS[1][0], TARGET_POS[1][1]))
+        # self.targets.append(Point(TARGET_POS[2][0], TARGET_POS[2][1]))
         self.goal = Point(GOAL_POS[0], GOAL_POS[1])
-        
+
+        self.world.add(Waypoint(Point(TARGET_POS[0][0], TARGET_POS[0][1]), 0.0, 'orange'))
+        self.world.add(Waypoint(Point(TARGET_POS[1][0], TARGET_POS[1][1]), 0.0, 'orange'))
+        self.world.add(Waypoint(Point(TARGET_POS[2][0], TARGET_POS[2][1]), 0.0, 'orange'))
+
+
+
         self.world.add(Painting(Point(MAP_WIDTH - BUILDING_WIDTH/2., MAP_HEIGHT/2.), Point(BUILDING_WIDTH+2*SIDEWALK_WIDTH, MAP_HEIGHT), 'gray64'))
         self.world.add(Painting(Point(BUILDING_WIDTH/2., MAP_HEIGHT/2.), Point(BUILDING_WIDTH+2*SIDEWALK_WIDTH, MAP_HEIGHT), 'gray64'))
 
@@ -64,9 +72,9 @@ class GoalFollowingScenario(gym.Env):
         self.world.add(RectangleBuilding(Point(BUILDING_WIDTH/2., MAP_HEIGHT/2.), Point(BUILDING_WIDTH, MAP_HEIGHT)))
 
         # Painting of Target/Goal/Starting Position (Used for visualizing the waypoint following)
-        self.world.add(Painting(Point(TARGET_POS[0][0], TARGET_POS[0][1]), Point(SIDEWALK_WIDTH, SIDEWALK_WIDTH), 'orange'))
-        self.world.add(Painting(Point(TARGET_POS[1][0], TARGET_POS[1][1]), Point(SIDEWALK_WIDTH, SIDEWALK_WIDTH), 'orange'))
-        self.world.add(Painting(Point(TARGET_POS[2][0], TARGET_POS[2][1]), Point(SIDEWALK_WIDTH, SIDEWALK_WIDTH), 'orange'))
+        # self.world.add(Painting(Point(TARGET_POS[0][0], TARGET_POS[0][1]), Point(SIDEWALK_WIDTH, SIDEWALK_WIDTH), 'orange'))
+        # self.world.add(Painting(Point(TARGET_POS[1][0], TARGET_POS[1][1]), Point(SIDEWALK_WIDTH, SIDEWALK_WIDTH), 'orange'))
+        # self.world.add(Painting(Point(TARGET_POS[2][0], TARGET_POS[2][1]), Point(SIDEWALK_WIDTH, SIDEWALK_WIDTH), 'orange'))
         self.world.add(Painting(Point(GOAL_POS[0], GOAL_POS[1]), Point(LANE_WIDTH*2, SIDEWALK_WIDTH*2), 'red'))
         self.world.add(Painting(Point(GOAL_POS[0], 0), Point(LANE_WIDTH*2, SIDEWALK_WIDTH*2),'blue'))
         # Respawn car itself in map
@@ -79,24 +87,24 @@ class GoalFollowingScenario(gym.Env):
         
     @property 
     def observation_space(self):
-        low = np.array([0, 0, BUILDING_WIDTH, self.ego.min_speed, 0])
-        high= np.array([MAP_WIDTH, MAP_HEIGHT, self.ego.max_speed, 2*np.pi])
+        low = np.array([0, 0, self.ego.min_speed, -np.pi/2, 0, 0, 0, 0])
+        high= np.array([MAP_WIDTH, MAP_HEIGHT, self.ego.max_speed, 2*np.pi, 2*np.pi, 1, 1, 1])
         return Box(low=low, high=high)
 
     @property
     def action_space(self): 
-        return Box(low=np.array([-0.5,-2.0]), high=np.array([0.5,1.5]))
+        return [(0.4, 0), (-0.4, 0), (0, 1), (0, -1), (0, 0)] # 5 action space,left acc, right acc, forward, back, stay
 
     def seed(self, seed):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
-    @property
-    def target_reached(self):
-        for i in range(len(self.targets)):
-            if self.targets[i].distanceTo(self.ego) < SIDEWALK_WIDTH:
-                return True
-        return False
+    # @property
+    # def target_reached(self):
+    #     for i in range(len(self.targets)):
+    #         if self.targets[i].distanceTo(self.ego) < SIDEWALK_WIDTH:
+    #             return True
+    #     return False
 
     @property 
     def goal_reached(self):
@@ -106,12 +114,13 @@ class GoalFollowingScenario(gym.Env):
     def collision_exists(self):
         return self.world.collision_exists()
 
-    def walkthrough_exists(self):
-        return
+    @property
+    def waypoint_passed(self):
+        return self.world.waypoint_passed(self.score_state)
         
     def step(self, action):
-        action = np.clip(action, self.action_space.low, self.action_space.high) # May not need it because our policy is just limited.
-        self.ego.set_control(action[0],action[1])
+        # action = np.clip(action, self.action_space.low, self.action_space.high) # May not need it because our policy is just limited.
+        self.ego.set_control(action[0], action[1])
         self.world.tick()
         
         
@@ -122,17 +131,17 @@ class GoalFollowingScenario(gym.Env):
             return -200
         elif self.goal_reached:
             return 100
-        elif self.target_reached:
-            return 20
+        elif self.waypoint_passed:
+            return 50
         else:
-            return -0.1*(self.ego.acceleration**2)
+            return -0.01*((self.ego.velocity.y - 10)**2) - 0.05 * self.ego.acceleration**2 #we want the speed to be close to 10 and keep constant linear speed
         
         # if self.active_goal < len(self.targets):
         #     return -0.01*self.targets[self.active_goal].distanceTo(self.ego)
         # return -0.01*np.min([self.targets[i].distanceTo(self.ego) for i in range(len(self.targets))])
         
-    def _get_obs(self): # Return Current State (5 dimensional stuff)
-        return np.array([self.ego.center.x, self.ego.speed, self.ego.heading])
+    def _get_obs(self): # Return Current State (8 dimensional stuff)
+        return np.array([self.ego.center.x, self.ego.center.y, self.ego.velocity.y, self.ego.velocity.x, self.ego.heading, self.score_state[0],self.score_state[1],self.score_state[2]])
         
     def render(self, mode='rgb'):
         self.world.render()

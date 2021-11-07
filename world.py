@@ -2,17 +2,21 @@ from agents import Car, Pedestrian, RectangleBuilding
 from entities import Entity
 from typing import Union
 from visualizer import Visualizer
+from agents import Waypoint
 
 class World:
     def __init__(self, dt: float, width: float, height: float, ppm: float = 8):
         self.dynamic_agents = []
         self.static_agents = []
+        self.waypoints =[]
         self.t = 0 # simulation time
         self.dt = dt # simulation time step
         self.visualizer = Visualizer(width, height, ppm=ppm)
         
     def add(self, entity: Entity):
-        if entity.movable:
+        if isinstance(entity, Waypoint):
+            self.waypoints.append(entity)
+        elif entity.movable:
             self.dynamic_agents.append(entity)
         else:
             self.static_agents.append(entity)
@@ -28,7 +32,7 @@ class World:
         
     @property
     def agents(self):
-        return self.static_agents + self.dynamic_agents
+        return self.static_agents + self.dynamic_agents + self.waypoints
         
     def collision_exists(self, agent = None):
         if agent is None:
@@ -48,6 +52,16 @@ class World:
         for i in range(len(self.agents)):
             if self.agents[i] is not agent and self.agents[i].collidable and agent.collidesWith(self.agents[i]):
                 return True
+        return False
+
+    def waypoint_passed(self, score_state):
+        for i in range(len(self.dynamic_agents)):
+            for j in range(len(self.waypoints)):
+                if self.dynamic_agents[i].collidable and self.waypoints[j].collidable:
+                    if self.dynamic_agents[i].collidesWith(self.waypoints[j]):
+                        self.waypoints.remove(self.waypoints[j])
+                        score_state[j] = 1
+                        return True
         return False
     
     def close(self):

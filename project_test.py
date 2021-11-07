@@ -17,7 +17,7 @@ if __name__ == "__main__":
         # We should apply the reinforcement method here!
         # For example, policy = ReinforcementLearning() # (angular velocity, linear velocity)
         #              gfs.ego.set_control(policy)
-        total_reward += gfs._get_reward()
+        total_reward += reward
         if if_reset:
             gfs.close()
             gfs.reset()
