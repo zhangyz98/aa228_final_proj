@@ -3,11 +3,12 @@ import numpy as np
 from numpy import random
 import tensorflow as tf
 import gym
-import gym_carlo
+# import gym_carlo
 import matplotlib.pyplot as plt
 import argparse
 import time
-from utils import *
+# from utils import *
+from aa228_project_scenario import GoalFollowingScenario
 
 # suppress deprecation warning for now
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
@@ -31,15 +32,16 @@ MAX_REPLAY_BUFFER_SIZE = BATCH_SIZE * 10
 # path where to save the actor after training
 FROZEN_ACTOR_PATH = 'frozen_actor.pb'
 # Modified 10/22
-all_throttle = np.arange(start=-.5, stop=2, step=1)
-all_steer = np.arange(start=-1, stop=2, step=1)
+all_throttle = np.array((-.5, 0., .5, 1.)) # np.arange(start=-.5, stop=2, step=1)
+all_steer = np.array((-.5, -.2, 0., .2, .5)) # np.arange(start=-1, stop=2, step=1)
 ACTION_DIM = len(all_throttle) * len(all_steer)
 all_action = np.zeros((ACTION_DIM, 2))
 for i in range(len(all_steer)):
     for j in range(len(all_throttle)):
         all_action[i * len(all_throttle) + j][0] = all_steer[i]
         all_action[i * len(all_throttle) + j][1] = all_throttle[j]
-print("action space = ", all_action)
+print(f"action space = {all_action}, action_dim = {ACTION_DIM}")
+
 
 # setting the random seed makes things reproducible
 random_seed = 2
@@ -120,7 +122,7 @@ class Actor():
         self.loss = -tf.reduce_mean(self.expected_v)
         # the training step
         # Modified 10/27
-        self.train_op = tf.compat.v1.train.AdamOptimizer(.01).minimize(self.loss)
+        self.train_op = tf.compat.v1.train.AdamOptimizer(.001).minimize(self.loss)
 
     def train_step(self, state, action, td_error):
         """
@@ -158,7 +160,7 @@ class Actor():
         """
         action_probs = self.sess.run(self.action_probs,
                                      {self.state_input_ph: state[np.newaxis, :]})
-        # print("action_probs: ", action_probs)
+        print("action_probs: ", action_probs)
         # Modified 10/21
         # action = np.random.choice(self.action_dim, p=action_probs[0, :])
         action_idx = np.random.choice(self.action_dim, p=action_probs[0, :])
@@ -254,7 +256,7 @@ class Critic():
         ######### Your code ends here #########
 
         # the train step
-        self.train_op = tf.compat.v1.train.AdamOptimizer(.01).minimize(self.loss)
+        self.train_op = tf.compat.v1.train.AdamOptimizer(.001).minimize(self.loss)
 
     def train_step(self, state, reward, state_next):
         """
@@ -297,7 +299,7 @@ def run_actor(env, actor, num_episodes, render=True):
     # Modification 10/19, 10/27
     # episode_number = 10 if args.visualize else 100
     success_counter = 0
-    env.T = 200*env.dt - env.dt/2. # Run for at most 200dt = 20 seconds
+    env.T = 500*env.dt - env.dt/2. # Run for at most 200dt = 20 seconds
     for _ in range(NUM_TEST_EPISODES):
         # env.seed(int(np.random.rand()*1e6))
         env.seed(random_seed)
@@ -317,14 +319,15 @@ def run_actor(env, actor, num_episodes, render=True):
             obs,reward,done,_ = env.step(action)
 
             total_reward += reward
-            if args.visualize:
+            if True: # args.visualize:
                 env.render()
                 while time.time() - t < env.dt/2:
                     pass # runs 2x speed. This is not great, but time.sleep() causes problems with the interactive controller
             if done:
                 env.close()
-                if args.visualize: time.sleep(1)
-                if env.target_reached: success_counter += 1
+                if True: # args.visualize:
+                    time.sleep(1)
+                # if env.target_reached: success_counter += 1
                 print("Reward: ", str(total_reward))
 
         # while not done:
@@ -365,15 +368,16 @@ def train_actor_critic(sess):
     # state_dim = env.observation_space.shape[0]
     # action_dim = env.action_space.n
 
-    if args.goal.lower() == 'all':
-        env = gym.make(scenario_name + 'Scenario-v0', goal=len(goals[scenario_name]))
-    else:
-        env = gym.make(scenario_name + 'Scenario-v0', goal=np.argwhere(np.array(goals[scenario_name])==args.goal.lower())[0,0]) # hmm, unreadable
-    # Modified 10/27
-    env.seed(random_seed)
+    # if args.goal.lower() == 'all':
+    #     env = gym.make(scenario_name + 'Scenario-v0', goal=len(goals[scenario_name]))
+    # else:
+    #     env = gym.make(scenario_name + 'Scenario-v0', goal=np.argwhere(np.array(goals[scenario_name])==args.goal.lower())[0,0]) # hmm, unreadable
+    # # Modified 10/27
+    # env.seed(random_seed)
+    env = GoalFollowingScenario()
 
     state_dim = env.observation_space.shape[0]
-    # print(state_dim)
+    print(f"state_dim: {state_dim}")
     action_dim = ACTION_DIM  # env.action_space.n
 
     # create an actor and a critic network and initialize their variables
@@ -485,13 +489,13 @@ def train_actor_critic(sess):
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--scenario', type=str, help="intersection, circularroad, lanechange", default="intersection")
-    parser.add_argument('--goal', type=str, help="left, straight, right, inner, outer, all", default="all")
-    parser.add_argument("--visualize", action="store_true", default=False)
-    args = parser.parse_args()
-    scenario_name = args.scenario.lower()
-    assert scenario_name in scenario_names, '--scenario argument is invalid!'
+    # parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    # parser.add_argument('--scenario', type=str, help="intersection, circularroad, lanechange", default="intersection")
+    # parser.add_argument('--goal', type=str, help="left, straight, right, inner, outer, all", default="all")
+    # parser.add_argument("--visualize", action="store_true", default=False)
+    # args = parser.parse_args()
+    # scenario_name = args.scenario.lower()
+    # assert scenario_name in scenario_names, '--scenario argument is invalid!'
 
     sess = tf.compat.v1.Session()
     train_actor_critic(sess)
