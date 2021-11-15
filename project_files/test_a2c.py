@@ -13,15 +13,14 @@ from aa228_project_scenario import GoalFollowingScenario
 # suppress deprecation warning for now
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 # maximum number of training episodes
-# Modifed 10/27
-NUM_EPISODES = 40  # 90
+TRAIN_EPISODES = 100 # 40  # 90
 # maximum number of steps per episode
 # CartPole-V0 has a maximum of 200 steps per episodes
 MAX_EP_STEPS = 200
 # reward discount factor
 GAMMA = .6
 # once MAX_EPISODES or ctrl-c is pressed, number of test episodes to run
-NUM_TEST_EPISODES = 5
+TEST_EPISODES = 5
 # batch size used for the training
 BATCH_SIZE = 200  # 1000
 # maximum number of transitions stored in the replay buffer
@@ -30,8 +29,8 @@ MAX_REPLAY_BUFFER_SIZE = BATCH_SIZE * 10
 # FAILURE_REWARD = -200. # -10.
 
 # path where to save the actor after training
-FROZEN_ACTOR_PATH = 'frozen_actor.pb'
-# Modified 10/22
+# FROZEN_ACTOR_PATH = 'frozen_actor.pb'
+# Modified
 all_throttle = np.array((-.5, 0., .5, 1.)) # np.arange(start=-.5, stop=2, step=1)
 all_steer = np.array((-.5, -.2, 0., .2, .5)) # np.arange(start=-1, stop=2, step=1)
 ACTION_DIM = len(all_throttle) * len(all_steer)
@@ -160,7 +159,7 @@ class Actor():
         """
         action_probs = self.sess.run(self.action_probs,
                                      {self.state_input_ph: state[np.newaxis, :]})
-        print("action_probs: ", action_probs)
+        # print("action_probs: ", action_probs)
         # Modified 10/21
         # action = np.random.choice(self.action_dim, p=action_probs[0, :])
         action_idx = np.random.choice(self.action_dim, p=action_probs[0, :])
@@ -280,27 +279,25 @@ class Critic():
         # print("critic_reward_ph = ", reward)
         # print("critic_v_next = ", v_next)
         # print("critic_td_error = ", td_error)
-        print("critic_td_error_mean = ", np.average(td_error))
+        # print("critic_td_error_mean = ", np.average(td_error))
         return td_error
 
 
-def run_actor(env, actor, num_episodes, render=True):
+def run_actor(env, actor, TRAIN_EPISODES, render=True):
     """
     Runs the actor on the environment for
-    num_episodes
+    TRAIN_EPISODES
 
     arguments:
         env: the openai gym environment
         actor: an instance of the Actor class
-        num_episodes: number of episodes to run the actor for
+        TRAIN_EPISODES: number of episodes to run the actor for
     returns:
         nothing
     """
     # Modification 10/19, 10/27
-    # episode_number = 10 if args.visualize else 100
-    success_counter = 0
     env.T = 500*env.dt - env.dt/2. # Run for at most 200dt = 20 seconds
-    for _ in range(NUM_TEST_EPISODES):
+    for _ in range(TEST_EPISODES):
         # env.seed(int(np.random.rand()*1e6))
         env.seed(random_seed)
         obs, done = env.reset(), False
@@ -327,7 +324,6 @@ def run_actor(env, actor, num_episodes, render=True):
                 env.close()
                 if True: # args.visualize:
                     time.sleep(1)
-                # if env.target_reached: success_counter += 1
                 print("Reward: ", str(total_reward))
 
         # while not done:
@@ -343,7 +339,7 @@ def run_actor(env, actor, num_episodes, render=True):
         #         if args.visualize: time.sleep(1)
         #         if env.target_reached: success_counter += 1
 
-    # for i_episode in range(num_episodes):
+    # for i_episode in range(TRAIN_EPISODES):
     #     state = env.reset()
     #     total_reward = 0.
     #     for t in range(MAX_EP_STEPS):
@@ -394,10 +390,14 @@ def train_actor_critic(sess):
     # still be tested and its network exported for verification
 
     # allocate memory to keep track of episode rewards
-    reward_history = np.zeros(NUM_EPISODES)
+    reward_hist = [] # np.zeros(TRAIN_EPISODES)
+
+    # allocate memory to keep track of td errors and expected reward-to-go
+    td_err_hist = [] # np.zeros(TRAIN_EPISODES)
+    expected_v_hist = []
 
     try:
-        for i_episode in range(NUM_EPISODES):
+        for _ in range(TRAIN_EPISODES):
 
             # very inneficient way of making sure the buffer isn't too full
             if replay_buffer.shape[0] > MAX_REPLAY_BUFFER_SIZE:
@@ -443,43 +443,55 @@ def train_actor_critic(sess):
                     action_samples = replay_buffer[samples_i, state_dim:state_dim + 1]
                     reward_samples = replay_buffer[samples_i, state_dim + 1:state_dim + 2]
                     state_next_samples = replay_buffer[samples_i, state_dim + 2:2 * state_dim + 2]
-                    # action_samples = replay_buffer[samples_i, state_dim : state_dim + 2]
-                    # reward_samples = replay_buffer[samples_i, state_dim + 2 : state_dim + 3]
-                    # state_next_samples = replay_buffer[samples_i, state_dim + 3 : 2 * state_dim + 3]
 
                     # compute the TD error using the critic
                     td_error = critic.train_step(state_samples, reward_samples, state_next_samples)
+                    td_err_hist.append(np.average(td_error))
 
                     # train the actor (we don't need the expected value unless you want to log it)
-                    actor.train_step(state_samples, action_samples, td_error)
-
-                    if done:
-                        # print how well we did on this episode
-                        print(episode_reward)
-                        reward_history[i_episode] = episode_reward
+                    expected_v = actor.train_step(state_samples, action_samples, td_error)
+                    expected_v_hist.append(np.average(expected_v))
 
                 # update current state for next iteration
                 state = state_next
 
                 if done:
                     break
-            reward_history[i_episode] = episode_reward
+            # reward_hist[i_episode] = episode_reward
+            reward_hist.append(episode_reward)
+
 
     except KeyboardInterrupt:
         print("training interrupted")
     
-    # Modification 10/19, 10/27
-    # plot reward history
+    # Modified
     plt.figure()
-    plt.plot(reward_history, '-.')
-    plt.xlabel('Number of Episodes')
+    plt.plot(reward_hist, '-.')
+    plt.xlabel('Episode')
     plt.ylabel('Episode Reward')
-    plt.title('History of Episode Reward')
-    # if not os.path.exists('../plots'):
-    #     os.makedirs('../plots')
-    # plt.savefig('../plots/p3_reward_history.png')
+    plt.title('Episode Reward History')
+    if not os.path.exists('./plots'):
+        os.makedirs('./plots')
+    plt.savefig('./plots/reward_hist.png')
     plt.show()
-    run_actor(env, actor, NUM_TEST_EPISODES)
+
+    plt.figure()
+    plt.plot(td_err_hist, '-.')
+    plt.xlabel('Episode')
+    plt.ylabel('Mean TD Error')
+    plt.title('TD Error History')
+    plt.savefig('./plots/td_err_hist.png')
+    plt.show()
+
+    plt.figure()
+    plt.plot(expected_v_hist, '-.')
+    plt.xlabel('Episode')
+    plt.ylabel('Mean Expected Reward-To-Go')
+    plt.title('Expected Reward-To-Go History')
+    plt.savefig('./plots/expected_v_hist.png')
+    plt.show()
+
+    run_actor(env, actor, TEST_EPISODES)
 
     # exports the actor neural network and its weights, for future verification
     # actor.export(FROZEN_ACTOR_PATH)

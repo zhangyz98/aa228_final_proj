@@ -30,7 +30,7 @@ class GoalFollowingScenario(gym.Env):
         self.init_ego.velocity = Point(0., 5)
         self.init_ego.min_speed = 0.
         self.init_ego.max_speed = 30.
-        self.action_space = [(0.2, 0), (-0.2, 0), (0, 1), (0, -1), (0, 0)] # 5 action space,left acc, right acc, forward, back, stay
+        self.action_space = [(0.4, 0), (-0.4, 0), (0, 1), (0, -1), (0, 0)] # 5 action space,left acc, right acc, forward, back, stay
 
         self.dt = 0.1
         self.T = 20

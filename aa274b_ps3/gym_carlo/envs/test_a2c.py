@@ -14,7 +14,7 @@ from aa228_project_scenario import GoalFollowingScenario
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 # maximum number of training episodes
 # Modifed 10/27
-NUM_EPISODES = 40  # 90
+TRAIN_EPISODES = 40  # 90
 # maximum number of steps per episode
 # CartPole-V0 has a maximum of 200 steps per episodes
 MAX_EP_STEPS = 200
@@ -160,7 +160,7 @@ class Actor():
         """
         action_probs = self.sess.run(self.action_probs,
                                      {self.state_input_ph: state[np.newaxis, :]})
-        print("action_probs: ", action_probs)
+        # print("action_probs: ", action_probs)
         # Modified 10/21
         # action = np.random.choice(self.action_dim, p=action_probs[0, :])
         action_idx = np.random.choice(self.action_dim, p=action_probs[0, :])
@@ -394,10 +394,10 @@ def train_actor_critic(sess):
     # still be tested and its network exported for verification
 
     # allocate memory to keep track of episode rewards
-    reward_history = np.zeros(NUM_EPISODES)
+    reward_history = np.zeros(TRAIN_EPISODES)
 
     try:
-        for i_episode in range(NUM_EPISODES):
+        for i_episode in range(TRAIN_EPISODES):
 
             # very inneficient way of making sure the buffer isn't too full
             if replay_buffer.shape[0] > MAX_REPLAY_BUFFER_SIZE:
