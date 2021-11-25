@@ -31,8 +31,8 @@ class GoalFollowingScenario(gym.Env):
         self.init_ego.min_speed = 0.
         self.init_ego.max_speed = 30.
 
-        self.dt = 0.1
-        self.T = 20
+        self.dt = 0.3
+        self.T = 40
         
         self.reset()
         
@@ -43,8 +43,8 @@ class GoalFollowingScenario(gym.Env):
 
         # Random initialization reset (Heading diff)
         # self.ego.center = Point(BUILDING_WIDTH + SIDEWALK_WIDTH + 2 + np.random.rand()*(2*LANE_WIDTH + LANE_MARKER_WIDTH - 4), self.np_random.rand()* MAP_HEIGHT/10.)
-        self.ego.heading += np.random.randn()*0.1
-        self.ego.velocity += Point(0, self.np_random.randn()*2)
+        # self.ego.heading += np.random.randn()*0.1
+        # self.ego.velocity += Point(0, self.np_random.randn()*2)
 
         self.score_state = [0, 0, 0]
 
@@ -93,7 +93,7 @@ class GoalFollowingScenario(gym.Env):
 
     @property
     def action_space(self): 
-        return [(0.4, 0), (-0.4, 0), (0, 1), (0, -1), (0, 0)] # 5 action space,left acc, right acc, forward, back, stay
+        return [(0.2, 0), (-0.2, 0), (0, 0)] # 5 action space,left acc, right acc, forward, back, stay
 
     def seed(self, seed):
         self.np_random, seed = seeding.np_random(seed)
@@ -130,11 +130,12 @@ class GoalFollowingScenario(gym.Env):
         if self.collision_exists:
             return -200
         elif self.goal_reached:
-            return 100
+            return 400
         elif self.waypoint_passed:
-            return 50
+            return 400
         else:
-            return -0.01*((self.ego.velocity.y - 10)**2) - 0.05 * self.ego.acceleration**2 #we want the speed to be close to 10 and keep constant linear speed
+            return 5*np.sin(self.ego.heading)
+            #return -0.01*((self.ego.velocity.y - 10)**2) - 0.05 * self.ego.acceleration**2 #we want the speed to be close to 10 and keep constant linear speed
         
         # if self.active_goal < len(self.targets):
         #     return -0.01*self.targets[self.active_goal].distanceTo(self.ego)

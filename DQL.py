@@ -15,8 +15,8 @@ from aa228_project_scenario import GoalFollowingScenario
 env = GoalFollowingScenario()
 
 # Hyperparameters
-state_size = 8 # This has to be from (env.observation_space)
-action_size = 5 # This has to be from (env.action_space)
+state_size = 6 # This has to be from (env.observation_space)
+action_size = 3 # This has to be from (env.action_space)
 batch_size = 32 # batch size need to tune
 n_episodes = 1001 # episodes need to tune
 output_dir = "model_output/carlo_model"
@@ -34,7 +34,7 @@ class DQNAgent:
         self.gamma = 0.95 # Discount factor, will be tuned
 
         self.epsilon = 1.0 # initial epsilon = 1
-        self.epsilon_decay = 0.995 # exploration rate decay, will be tuned
+        self.epsilon_decay = 0.998 # exploration rate decay, will be tuned
         self.epsilon_min = 0.01 # minimum exploration rate, will be tuned
 
         self.learning_rate = 0.001 # neural network learning rate, will be tuned
@@ -47,8 +47,8 @@ class DQNAgent:
 
         model = Sequential()
 
-        model.add(Dense(48, input_dim=self.state_size, activation="relu")) # First layer, will be tuned
-        model.add(Dense(24, activation="relu")) # Second layer, will be tuned
+        model.add(Dense(128, input_dim=self.state_size, activation="relu")) # First layer, will be tuned
+        model.add(Dense(64, activation="relu")) # Second layer, will be tuned
         model.add(Dense(self.action_size, activation='linear'))
 
         model.compile(loss="mse", optimizer=Adam(lr=self.learning_rate))
@@ -87,45 +87,49 @@ class DQNAgent:
     def save(self, name):
         self.model.save_weights(name)
 
-agent = DQNAgent(state_size, action_size)
+def main():
+    agent = DQNAgent(state_size, action_size)
 
-### interaction ###
-done = False
-# train for 1000 samples
-for e in range(n_episodes):
+    ### interaction ###
+    done = False
+    # train for 1000 samples
+    for e in range(n_episodes):
 
-    state = env.reset()
-    state = np.reshape(state, [1, state_size])
-    total_reward = 0.
+        state = env.reset()
+        state = np.reshape(state, [1, state_size])
+        total_reward = 0.
 
-    # simulation for one time
-    for time in range(2000):
+        # simulation for one time
+        for time in range(2000):
 
-        #env.render() # See the training process
+            #env.render() # See the training process
 
-        action_idx = agent.act(state)
+            action_idx = agent.act(state)
 
-        action = env.action_space[action_idx]
+            action = env.action_space[action_idx]
 
-        next_state, reward, done, _ = env.step(action)
+            next_state, reward, done, _ = env.step(action)
 
-        next_state = np.reshape(next_state, [1, state_size])
+            next_state = np.reshape(next_state, [1, state_size])
 
-        # at every time step, store the state action pair in memory
-        agent.remember(state, action_idx, reward, next_state, done)
+            # at every time step, store the state action pair in memory
+            agent.remember(state, action_idx, reward, next_state, done)
 
-        state = next_state
+            state = next_state
 
-        total_reward += reward
+            total_reward += reward
 
-        if done:
-            #env.close()
-            print("episode: {", e , "}/{" , n_episodes , "}, cumulative reward: {" , total_reward , "}, e: {" , agent.epsilon, "}")
-            break 
-        
-    if len(agent.memory) > batch_size:
-        agent.replay(batch_size)
+            if done:
+                #env.close()
+                print("episode: {", e , "}/{" , n_episodes , "}, cumulative reward: {" , total_reward , "}, e: {" , agent.epsilon, "}")
+                break
 
-    if e % 50 == 0:
-        agent.save(output_dir + "weights_" + ":04d".format(e) + ".hdf5")
+        if len(agent.memory) > batch_size:
+            agent.replay(batch_size)
+
+        if e % 50 == 0:
+            agent.save(output_dir + "weights_" + ":04d".format(e) + ".hdf5")
+
+if __name__ == "__main__":
+    main()
         
