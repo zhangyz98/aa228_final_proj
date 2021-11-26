@@ -1,10 +1,11 @@
 from aa228_project_scenario import GoalFollowingScenario
+from aa228_interset_scenario import IntersectionScenario
 import numpy as np
 import gym
 import time
 
 if __name__ == "__main__":
-    gfs = GoalFollowingScenario()
+    gfs = IntersectionScenario()
     #gfs = gym.make()
     dt = 0.1
     u = (0., 0.)

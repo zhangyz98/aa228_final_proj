@@ -27,12 +27,12 @@ class GoalFollowingScenario(gym.Env):
         self.seed(0) # just in case we forget seeding
         
         self.init_ego = Car(Point(MAP_WIDTH/2., 0), heading = np.pi/2)
-        self.init_ego.velocity = Point(0., 5)
+        self.init_ego.velocity = Point(0., 4)
         self.init_ego.min_speed = 0.
         self.init_ego.max_speed = 30.
 
-        self.dt = 0.3
-        self.T = 40
+        self.dt = 0.2 #0.1
+        self.T = 50 #20
         
         self.reset()
         
@@ -54,6 +54,7 @@ class GoalFollowingScenario(gym.Env):
         # self.targets.append(Point(TARGET_POS[2][0], TARGET_POS[2][1]))
         self.goal = Point(GOAL_POS[0], GOAL_POS[1])
 
+        # add three waypoints for following
         self.world.add(Waypoint(Point(TARGET_POS[0][0], TARGET_POS[0][1]), 0.0, 'orange'))
         self.world.add(Waypoint(Point(TARGET_POS[1][0], TARGET_POS[1][1]), 0.0, 'orange'))
         self.world.add(Waypoint(Point(TARGET_POS[2][0], TARGET_POS[2][1]), 0.0, 'orange'))
@@ -92,7 +93,8 @@ class GoalFollowingScenario(gym.Env):
         return Box(low=low, high=high)
 
     @property
-    def action_space(self): 
+    def action_space(self):
+        #return [(0.4, 0), (-0.4, 0), (0, 1), (0, -1), (0, 0)]  # 5 action space,left acc, right acc, forward, back, stay
         return [(0.2, 0), (-0.2, 0), (0, 0)] # 5 action space,left acc, right acc, forward, back, stay
 
     def seed(self, seed):
@@ -128,13 +130,13 @@ class GoalFollowingScenario(gym.Env):
         
     def _get_reward(self): # Define Reward Here (Need to specify)
         if self.collision_exists:
-            return -200
+            return -100
         elif self.goal_reached:
-            return 400
-        elif self.waypoint_passed:
-            return 400
+            return 400 #100
+        elif self.waypoint_passed: # pass each waypoint only once, and never pass it again, how did the score state reflect this?????
+            return 400 #20
         else:
-            return 5*np.sin(self.ego.heading)
+            return np.sin(self.ego.heading)
             #return -0.01*((self.ego.velocity.y - 10)**2) - 0.05 * self.ego.acceleration**2 #we want the speed to be close to 10 and keep constant linear speed
         
         # if self.active_goal < len(self.targets):
@@ -142,7 +144,10 @@ class GoalFollowingScenario(gym.Env):
         # return -0.01*np.min([self.targets[i].distanceTo(self.ego) for i in range(len(self.targets))])
         
     def _get_obs(self): # Return Current State (8 dimensional stuff)
-        return np.array([self.ego.center.x, self.ego.center.y, self.ego.velocity.y, self.ego.velocity.x, self.ego.heading, self.score_state[0],self.score_state[1],self.score_state[2]])
+        return np.array(
+            [self.ego.center.x, self.ego.center.y, self.ego.heading,
+             self.score_state[0], self.score_state[1], self.score_state[2]])
+        #return np.array([self.ego.center.x, self.ego.center.y, self.ego.velocity.y, self.ego.velocity.x, self.ego.heading, self.score_state[0],self.score_state[1],self.score_state[2]])
         
     def render(self, mode='rgb'):
         self.world.render()

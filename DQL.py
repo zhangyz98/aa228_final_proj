@@ -10,7 +10,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.optimizers import Adam
 from aa228_project_scenario import GoalFollowingScenario
-
+from matplotlib import pyplot as plt
 # Set up environment
 env = GoalFollowingScenario()
 
@@ -18,7 +18,7 @@ env = GoalFollowingScenario()
 state_size = 6 # This has to be from (env.observation_space)
 action_size = 3 # This has to be from (env.action_space)
 batch_size = 32 # batch size need to tune
-n_episodes = 1001 # episodes need to tune
+n_episodes = 3001 # episodes need to tune
 output_dir = "model_output/carlo_model"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
@@ -48,7 +48,8 @@ class DQNAgent:
         model = Sequential()
 
         model.add(Dense(128, input_dim=self.state_size, activation="relu")) # First layer, will be tuned
-        model.add(Dense(64, activation="relu")) # Second layer, will be tuned
+        model.add(Dense(64, activation="relu"))  # Second layer, will be tuned
+        model.add(Dense(32, activation="relu"))  # Third layer, will be tuned
         model.add(Dense(self.action_size, activation='linear'))
 
         model.compile(loss="mse", optimizer=Adam(lr=self.learning_rate))
@@ -92,6 +93,7 @@ def main():
 
     ### interaction ###
     done = False
+    plot_reward = []
     # train for 1000 samples
     for e in range(n_episodes):
 
@@ -100,7 +102,7 @@ def main():
         total_reward = 0.
 
         # simulation for one time
-        for time in range(2000):
+        for time in range(5000):
 
             #env.render() # See the training process
 
@@ -121,6 +123,7 @@ def main():
 
             if done:
                 #env.close()
+                plot_reward.append(total_reward)
                 print("episode: {", e , "}/{" , n_episodes , "}, cumulative reward: {" , total_reward , "}, e: {" , agent.epsilon, "}")
                 break
 
@@ -128,7 +131,12 @@ def main():
             agent.replay(batch_size)
 
         if e % 50 == 0:
-            agent.save(output_dir + "weights_" + ":04d".format(e) + ".hdf5")
+            agent.save(output_dir + "weights_" + str(e) + ".hdf5")
+    plt.plot(plot_reward)
+    plt.title("Total reward vs. Episode")
+    plt.xlabel('Episode')
+    plt.ylabel('Reward')
+    plt.savefig('Reward_aa218')
 
 if __name__ == "__main__":
     main()
