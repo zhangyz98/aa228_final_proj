@@ -1,19 +1,25 @@
 import os
 import numpy as np
 from numpy import random
+from numpy.lib.histograms import _search_sorted_inclusive
+from numpy.lib.npyio import save
 import tensorflow as tf
 import gym
 # import gym_carlo
 import matplotlib.pyplot as plt
 import argparse
 import time
+from datetime import datetime
 # from utils import *
+from tqdm import tqdm
+import cv2
+import logging
 from aa228_project_scenario import GoalFollowingScenario
 
 # suppress deprecation warning for now
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 # maximum number of training episodes
-TRAIN_EPISODES = 100 # 40  # 90
+TRAIN_EPISODES = 100 # 1000
 # maximum number of steps per episode
 # CartPole-V0 has a maximum of 200 steps per episodes
 MAX_EP_STEPS = 200
@@ -22,14 +28,20 @@ GAMMA = .6
 # once MAX_EPISODES or ctrl-c is pressed, number of test episodes to run
 TEST_EPISODES = 5
 # batch size used for the training
-BATCH_SIZE = 200  # 1000
+BATCH_SIZE = 200  # 500
 # maximum number of transitions stored in the replay buffer
 MAX_REPLAY_BUFFER_SIZE = BATCH_SIZE * 10
+# explore index that encourages exploration
+DECAY_RATE = .9
 # reward that is returned when the episode terminates early (i.e. the controller fails)
 # FAILURE_REWARD = -200. # -10.
+# make a timestamp for file saving
+TIMESTAMP = str(datetime.now())
 
 # path where to save the actor after training
 # FROZEN_ACTOR_PATH = 'frozen_actor.pb'
+FROZEN_ACTOR_PATH = 'frozen_actor'
+
 # Modified
 all_throttle = np.array((-.5, 0., .5, 1.)) # np.arange(start=-.5, stop=2, step=1)
 all_steer = np.array((-.5, -.2, 0., .2, .5)) # np.arange(start=-1, stop=2, step=1)
@@ -83,23 +95,8 @@ class Actor():
 
         # the neural network (input will be state, output is unscaled probability distribution)
         # note: the neural network must be entirely linear to support verification
-        self.nn = tf.keras.Sequential([
-            # Modified 10/27
-            # tf.keras.layers.Dense(128, activation='relu',
-            tf.keras.layers.Dense(64, activation='tanh',
-                                  input_shape=[state_dim],
-                                  kernel_initializer=tf.random_normal_initializer(0., .1),
-                                  bias_initializer=tf.constant_initializer(.1),
-                                  name='actor_h1'),
-            tf.keras.layers.Dense(128, activation='tanh',
-                                  kernel_initializer=tf.random_normal_initializer(0., .1),
-                                  bias_initializer=tf.constant_initializer(.1),
-                                  name='actor_h2'),
-            tf.keras.layers.Dense(action_dim, activation=None,
-                                  kernel_initializer=tf.random_normal_initializer(0., .1),
-                                  bias_initializer=tf.constant_initializer(.1),
-                                  name='actor_outputs'),
-        ])
+        self.nn = self.buildnn()
+
         # probability distribution over potential actions
         self.action_probs = tf.math.softmax(self.nn(self.state_input_ph))
         # print("action_probs: ", self.action_probs)
@@ -120,8 +117,40 @@ class Actor():
         # taking the negative so that we effectively maximize
         self.loss = -tf.reduce_mean(self.expected_v)
         # the training step
-        # Modified 10/27
-        self.train_op = tf.compat.v1.train.AdamOptimizer(.001).minimize(self.loss)
+        # Modified 12/2
+        if TRAIN_EPISODES > 100:
+            lr = .0001
+        else:
+            lr = .001
+        # self.train_op = tf.compat.v1.train.AdamOptimizer(.001).minimize(self.loss)
+        self.train_op = tf.compat.v1.train.AdamOptimizer(lr).minimize(self.loss)
+    
+    def buildnn(self):
+        model = tf.keras.Sequential([
+            # Modified 10/27
+            # tf.keras.layers.Dense(128, activation='relu',
+            tf.keras.layers.Dense(64, activation='tanh',
+                                  input_shape=[self.state_dim],
+                                  kernel_initializer=tf.random_normal_initializer(0., .1),
+                                  bias_initializer=tf.constant_initializer(.1),
+                                  name='actor_h1'),
+            tf.keras.layers.Dense(128, activation='tanh',
+                                  kernel_initializer=tf.random_normal_initializer(0., .1),
+                                  bias_initializer=tf.constant_initializer(.1),
+                                  name='actor_h2'),
+            tf.keras.layers.Dense(self.action_dim, activation=None,
+                                  kernel_initializer=tf.random_normal_initializer(0., .1),
+                                  bias_initializer=tf.constant_initializer(.1),
+                                  name='actor_outputs'),
+        ])
+        return model
+
+    def savenn(self, path):
+        # self.nn.save_weights(path)
+        self.nn.save(path)
+    
+    def loadnn(self, path):
+        self.nn.load_weights(path)
 
     def train_step(self, state, action, td_error):
         """
@@ -147,7 +176,7 @@ class Actor():
         # print("actor_expected_v: ", expected_v)
         return expected_v
 
-    def get_action(self, state):
+    def get_action(self, state, explore_ind=0, train=False):
         """
         Get an action for a given state by predicting a probability distribution
         over actions and sampling one.
@@ -162,9 +191,13 @@ class Actor():
         # print("action_probs: ", action_probs)
         # Modified 10/21
         # action = np.random.choice(self.action_dim, p=action_probs[0, :])
+        # action_idx = np.random.choice(self.action_dim)
+        # if train:
+        #     if np.random.rand() >= explore_ind:
+        #         action_idx = np.random.choice(self.action_dim, p=action_probs[0, :])
         action_idx = np.random.choice(self.action_dim, p=action_probs[0, :])
-        action = all_action[action_idx]
-        print("get_action result:", action_idx, action)
+        # action = all_action[action_idx]
+        # print("get_action result:", action_idx, action)
         return action_idx
 
     def export(self, frozen_actor_path):
@@ -244,10 +277,6 @@ class Critic():
         self.v = self.nn(self.state_input_ph)
         # td_error (Eqn.14)
         self.td_error = self.reward_ph + GAMMA * self.v_next_ph - self.v
-        # Modified 10/27
-        # print("reward_ph = ", self.reward_ph)
-        # print("v_next_ph = ", self.v_next_ph)
-        # print("v = ", self.v)
 
         # loss (Eqn.16)
         self.loss = tf.reduce_sum(tf.square(self.td_error))
@@ -283,7 +312,7 @@ class Critic():
         return td_error
 
 
-def run_actor(env, actor, TRAIN_EPISODES, render=True):
+def run_actor(env, actor, TRAIN_EPISODES, render=True, path=None):
     """
     Runs the actor on the environment for
     TRAIN_EPISODES
@@ -295,15 +324,23 @@ def run_actor(env, actor, TRAIN_EPISODES, render=True):
     returns:
         nothing
     """
-    # Modification 10/19, 10/27
+    # Modification 10/19, 10/27, 12/2
+    
     env.T = 500*env.dt - env.dt/2. # Run for at most 200dt = 20 seconds
-    for _ in range(TEST_EPISODES):
+    for test_eps in range(TEST_EPISODES):
         # env.seed(int(np.random.rand()*1e6))
         env.seed(random_seed)
         obs, done = env.reset(), False
         total_reward = 0.
         # if args.visualize:
         #     env.render()
+        # frame = env.render(mode="rgb_array")
+        # print(frame)
+        # plt.imshow(frame)
+        # frame_size = (frame.shape[0], frame.shape[1])
+        # print(frame_size)
+        # video_name = path + '/test' + str(test_eps) + '.avi'
+        # video = cv2.VideoWriter(video_name, cv2.VideoWriter_fourcc(*'MJPG'), 10, frame_size)
         while not done:
             t = time.time()
 
@@ -318,6 +355,10 @@ def run_actor(env, actor, TRAIN_EPISODES, render=True):
             total_reward += reward
             if True: # args.visualize:
                 env.render()
+                # env_fig = env.render(mode="rgb_array")
+                # print(env_fig)
+                # video.write(env_fig)
+
                 while time.time() - t < env.dt/2:
                     pass # runs 2x speed. This is not great, but time.sleep() causes problems with the interactive controller
             if done:
@@ -384,7 +425,6 @@ def train_actor_critic(sess):
     # the replay buffer will store observed transitions
     # Modified 10/22
     replay_buffer = np.zeros((0, 2 * state_dim + 2))
-    # replay_buffer = np.zeros((0, 2 * state_dim + 2 + 1))
 
     # you can stop the training at any time using ctrl+c (the actor will
     # still be tested and its network exported for verification
@@ -396,8 +436,11 @@ def train_actor_critic(sess):
     td_err_hist = [] # np.zeros(TRAIN_EPISODES)
     expected_v_hist = []
 
+    # decay exploration
+    explore_ind = 1.
+
     try:
-        for _ in range(TRAIN_EPISODES):
+        for train_eps in tqdm(range(TRAIN_EPISODES)):
 
             # very inneficient way of making sure the buffer isn't too full
             if replay_buffer.shape[0] > MAX_REPLAY_BUFFER_SIZE:
@@ -406,18 +449,26 @@ def train_actor_critic(sess):
             # reset the OpenAI gym environment to a random initial state for each episode
             state = env.reset()
             episode_reward = 0.
-
+            timestamp = time.time()
             for t in range(MAX_EP_STEPS):
-                print("training %d" % t)
+                # print("training %d" % t)
                 # uses the actor to get an action at the current state
                 # Modifed 10/22
                 # action = actor.get_action(state)
-                action_idx = actor.get_action(state)
+                action_idx = actor.get_action(state, train=True)
                 action = all_action[action_idx]
                 # print(action)
 
                 # call gym to get the next state and reward, given we are taking action at the current state
                 state_next, reward, done, _ = env.step(action)
+                if train_eps % 50 == 0:
+                    env.render()
+                    while time.time() - timestamp < env.dt/2:
+                        pass # runs 2x speed. This is not great, but time.sleep() causes problems with the interactive controller
+                if done:
+                    env.close()
+                    # if True: # args.visualize:
+                    #     time.sleep(1)
 
                 # done=True means either the cartpole failed OR we've reached the maximum number of episode steps
                 # Modified 10/22
@@ -460,19 +511,30 @@ def train_actor_critic(sess):
             # reward_hist[i_episode] = episode_reward
             reward_hist.append(episode_reward)
 
+            if train_eps % 10 == 0:
+                explore_ind *= DECAY_RATE
+
 
     except KeyboardInterrupt:
         print("training interrupted")
     
-    # Modified
+    # save trained actor
+    # Modified 12/2
+    savepath = './' + TIMESTAMP
+    figpath = savepath + '/figs'
+    videopath = savepath + '/videos'
+
+    # for path in [savepath, figpath, videopath]:
+    for path in [savepath, figpath]:
+        if not os.path.exists(path):
+            os.mkdir(path)
+    
     plt.figure()
     plt.plot(reward_hist, '-.')
     plt.xlabel('Episode')
     plt.ylabel('Episode Reward')
     plt.title('Episode Reward History')
-    if not os.path.exists('./plots'):
-        os.makedirs('./plots')
-    plt.savefig('./plots/reward_hist.png')
+    plt.savefig(figpath + '/reward_hist.png')
     plt.show()
 
     plt.figure()
@@ -480,7 +542,7 @@ def train_actor_critic(sess):
     plt.xlabel('Episode')
     plt.ylabel('Mean TD Error')
     plt.title('TD Error History')
-    plt.savefig('./plots/td_err_hist.png')
+    plt.savefig(figpath + '/td_err_hist.png')
     plt.show()
 
     plt.figure()
@@ -488,13 +550,18 @@ def train_actor_critic(sess):
     plt.xlabel('Episode')
     plt.ylabel('Mean Expected Reward-To-Go')
     plt.title('Expected Reward-To-Go History')
-    plt.savefig('./plots/expected_v_hist.png')
+    plt.savefig(figpath + '/expected_v_hist.png')
     plt.show()
 
-    run_actor(env, actor, TEST_EPISODES)
-
     # exports the actor neural network and its weights, for future verification
-    # actor.export(FROZEN_ACTOR_PATH)
+    # actor.export(savepath + '/' + FROZEN_ACTOR_PATH)
+    # actor.savenn(savepath + '/' + FROZEN_ACTOR_PATH + '.hdf5')
+    actor.savenn(savepath + '/' + FROZEN_ACTOR_PATH)
+    
+
+    # run some test cases
+    run_actor(env, actor, TEST_EPISODES, True, videopath)
+
     # closes the environement
     env.close()
 
@@ -508,6 +575,16 @@ if __name__ == "__main__":
     # args = parser.parse_args()
     # scenario_name = args.scenario.lower()
     # assert scenario_name in scenario_names, '--scenario argument is invalid!'
+    
+    logging.basicConfig(
+        filename='train.log',
+        filemode='a',
+        format='\n%(message)s',
+        level=logging.INFO
+        )
+    logging.info(str(TIMESTAMP))
 
     sess = tf.compat.v1.Session()
+
     train_actor_critic(sess)
+

@@ -90,6 +90,9 @@ class GoalFollowingScenario(gym.Env):
     def observation_space(self):
         low = np.array([0, 0, self.ego.min_speed, -np.pi/2, 0, 0, 0, 0])
         high= np.array([MAP_WIDTH, MAP_HEIGHT, self.ego.max_speed, 2*np.pi, 2*np.pi, 1, 1, 1])
+        # low = np.array([0, 0, self.ego.min_speed, -np.pi/2, 0])
+        # high= np.array([MAP_WIDTH, MAP_HEIGHT, self.ego.max_speed, 2*np.pi, 2*np.pi])
+
         return Box(low=low, high=high)
 
     # @property
@@ -142,7 +145,11 @@ class GoalFollowingScenario(gym.Env):
         # return -0.01*np.min([self.targets[i].distanceTo(self.ego) for i in range(len(self.targets))])
         
     def _get_obs(self): # Return Current State (8 dimensional stuff)
-        return np.array([self.ego.center.x, self.ego.center.y, self.ego.velocity.y, self.ego.velocity.x, self.ego.heading, self.score_state[0],self.score_state[1],self.score_state[2]])
+        return np.array([
+            self.ego.center.x, self.ego.center.y, self.ego.velocity.y,
+            self.ego.velocity.x, self.ego.heading,
+            self.score_state[0],self.score_state[1],self.score_state[2]
+            ])
         
     def render(self, mode='rgb'):
         self.world.render()
