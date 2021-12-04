@@ -15,12 +15,12 @@ from matplotlib import pyplot as plt
 env = GoalFollowingScenario()
 
 # Hyperparameters
-state_size = 6 # This has to be from (env.observation_space)
+state_size = 4 # This has to be from (env.observation_space)
 action_size = 3 # This has to be from (env.action_space)
 batch_size = 32
-n_episodes = 1001
+n_episodes = 3001
 dt = 0.1
-output_dir = "model_output_aa228/carlo_model"
+output_dir = "model_output_aa228_4/carlo_model"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
@@ -34,9 +34,10 @@ class DQNAgent:
 
         self.gamma = 0.95 # Discount factor, will be tuned
 
+        self.k = 500 # Suggest a K step random exploration policy
         self.epsilon = 1.0 
-        self.epsilon_decay = 0.995 # exploration rate decay, will be tuned
-        self.epsilon_min = 0.01 # minimum exploration rate, will be tuned
+        self.epsilon_decay = 0.998 # exploration rate decay, will be tuned
+        self.epsilon_min = 0.03 # minimum exploration rate, will be tuned
 
         self.learning_rate = 0.001 # neural network learning rate, will be tuned
         
@@ -46,8 +47,8 @@ class DQNAgent:
 
         model = Sequential()
 
-        model.add(Dense(48, input_dim=self.state_size, activation="relu")) # First layer, will be tuned
-        model.add(Dense(24, activation="relu")) # Second layer, will be tuned
+        model.add(Dense(64, input_dim=self.state_size, activation="relu")) # First layer, will be tuned
+        model.add(Dense(32, activation="relu")) # Second layer, will be tuned
         model.add(Dense(self.action_size, activation='linear'))
 
         model.compile(loss="mse", optimizer=Adam(lr=self.learning_rate))
@@ -58,7 +59,7 @@ class DQNAgent:
         self.memory.append((state, action, reward, next_state, done))
 
     def act(self, state):
-        if np.random.rand() <= self.epsilon:
+        if self.k >= 0 or np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
         act_values = self.model.predict(state)
         return np.argmax(act_values[0])
@@ -76,8 +77,10 @@ class DQNAgent:
 
             self.model.fit(state, target_f, epochs=1, verbose=0)
 
-        if self.epsilon > self.epsilon_min:
+        if self.k < 0 and self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay
+
+        self.k = self.k - 1
 
     def load(self, name):
         self.model.load_weights(name)
@@ -134,7 +137,7 @@ def main():
     plt.title("Total reward vs. Episode")
     plt.xlabel('Episode')
     plt.ylabel('Reward')
-    plt.savefig('Reward_aa218')
+    plt.savefig('Reward_aa228_run4')
 
 if __name__ == "__main__":
     main()

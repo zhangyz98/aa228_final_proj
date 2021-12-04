@@ -43,14 +43,14 @@ class GoalFollowingScenario(gym.Env):
 
         # Random initialization reset (Heading diff)
         # self.ego.center = Point(BUILDING_WIDTH + SIDEWALK_WIDTH + 2 + np.random.rand()*(2*LANE_WIDTH + LANE_MARKER_WIDTH - 4), self.np_random.rand()* MAP_HEIGHT/10.)
-        self.ego.heading += np.random.randn()*0.1
-        self.ego.velocity += Point(0, self.np_random.randn()*0.5)
+        # self.ego.heading += np.random.randn()*0.1
+        # self.ego.velocity += Point(0, self.np_random.randn()*0.5)
 
         self.targets = []
         self.targets.append(Point(TARGET_POS[0][0], TARGET_POS[0][1]))
         self.targets.append(Point(TARGET_POS[1][0], TARGET_POS[1][1]))
         #self.targets.append(Point(TARGET_POS[2][0], TARGET_POS[2][1]))
-        self.score_state = [0, 0]
+        # self.score_state = [0, 0]
 
         self.goal = Point(GOAL_POS[0], GOAL_POS[1])
         
@@ -81,13 +81,13 @@ class GoalFollowingScenario(gym.Env):
         
     @property 
     def observation_space(self): # 5-dim state space
-        low = np.array([0, 0, -np.pi/2, 0, 0, 0])
-        high= np.array([MAP_WIDTH, MAP_HEIGHT, np.pi/2, 2*np.pi, 1, 1])
+        low = np.array([-MAP_WIDTH/2, 0, -np.pi/2, 0])#, 0, 0])
+        high= np.array([MAP_WIDTH/2, MAP_HEIGHT, np.pi/2, 2*np.pi])#, 1, 1])
         return Box(low=low, high=high)
 
     @property
     def action_space(self): # 5 actions to choose
-        return [(0.2, 0), (-0.2, 0), (0, 0)]
+        return [(0, 0),(0.2, 0), (-0.2, 0)]
 
     def seed(self, seed):
         self.np_random, seed = seeding.np_random(seed)
@@ -96,8 +96,8 @@ class GoalFollowingScenario(gym.Env):
     @property
     def target_reached(self):
         for i in range(len(self.targets)):
-            if self.targets[i].distanceTo(self.ego) < SIDEWALK_WIDTH and self.score_state[i] == 0:
-                self.score_state[i] = 1
+            if self.targets[i].distanceTo(self.ego) < SIDEWALK_WIDTH: # and self.score_state[i] == 0:
+                # self.score_state[i] = 1
                 return True
         return False
 
@@ -119,21 +119,22 @@ class GoalFollowingScenario(gym.Env):
         
     def _get_reward(self): # Define Reward Here (Need to specify)
         if self.collision_exists:
-            return -200
+            return -50
         elif self.goal_reached:
-            return 400
+            # return 100
+            return max(0, 100 - 20*self.goal.distanceTo(self.ego))
         elif self.target_reached:
-            return 400
+            return 100
         else:
-            return 5*np.sin(self.ego.heading) #-0.01*((self.ego.velocity.y - 5)**2) - 0.05*max(0, self.ego.acceleration)**2 
+            return 5*np.sin(self.ego.heading)-1#-0.01*((self.ego.velocity.y - 5)**2) - 0.05*max(0, self.ego.acceleration)**2 
             # return -self.ego.inputSteering**2
         
         # if self.active_goal < len(self.targets):
         #     return -0.01*self.targets[self.active_goal].distanceTo(self.ego)
         # return -0.01*np.min([self.targets[i].distanceTo(self.ego) for i in range(len(self.targets))])
 
-    def _get_obs(self): # Return Current State (5 dimensional stuff)
-        return np.array([self.ego.center.x, self.ego.center.y, self.ego.velocity.x, self.ego.heading, self.score_state[0], self.score_state[1]])
+    def _get_obs(self): # Return Current State (4 dimensional stuff)
+        return np.array([self.ego.center.x - MAP_WIDTH/2, self.ego.center.y, self.ego.velocity.x, self.ego.heading])#, self.score_state[0], self.score_state[1]])
         
     def render(self, mode='rgb'):
         self.world.render()

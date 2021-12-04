@@ -14,12 +14,12 @@ from DQL_aa228 import DQNAgent
 # Set up environment
 # env = ObstacleAvoidanceScenario()
 env = GoalFollowingScenario()
-state_size = 6
+state_size = 4
 action_size = 3
 dt = 0.1
 
 agent = DQNAgent(state_size, action_size)
-agent.load("model_output_aa228/carlo_modelweights_1000.hdf5")
+agent.load("model_output_aa228_3/carlo_modelweights_3000.hdf5")
 
 done = False
 for e in range(10):
